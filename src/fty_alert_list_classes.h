@@ -30,7 +30,7 @@
 #include "platform.h"
 
 //  External API
-#include "../include/fty_alert_list.h"
+#include "../include/fty-alert-list.h"
 
 //  Opaque class structures to allow forward references
 
