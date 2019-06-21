@@ -88,9 +88,9 @@ alert_list.txt: $(top_srcdir)/src/alert_list.cc
 ### so that the manpages for binary programs match their name, at expense
 ### of perhaps being built in a subdirectory under doc/.
 GENERATED_DOCS += fty-alert-list.txt fty-alert-list.doc
-fty-alert-list.txt: $(top_srcdir)/src/fty_alert_list.cc
+fty-alert-list.txt: $(top_srcdir)/src/fty-alert-list.cc
 	mkdir -p "$(builddir)/$(@D)"
-	"$(srcdir)/mkman" "fty_alert_list" "$(builddir)/fty-alert-list.txt" "$(srcdir)/.."
+	"$(srcdir)/mkman" "fty-alert-list" "$(builddir)/fty-alert-list.txt" "$(srcdir)/.."
 
 
 clean-local:
