@@ -57,6 +57,7 @@ class Alert {
         void setMtime (uint64_t mtime) { m_Mtime = mtime; }
         uint64_t ttl () { return m_Ttl; }
         void setTtl (uint64_t ttl) { m_Ttl = ttl; }
+        std::string name () { return m_Name; };
         std::string outcome () { return m_Outcome[0]; }
         void setOutcome (std::string outcome) { m_Outcome.clear (); m_Outcome.push_back (outcome); }
         std::vector<std::string> outcomes () { return m_Outcome; }

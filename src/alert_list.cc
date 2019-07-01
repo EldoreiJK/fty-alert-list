@@ -67,9 +67,7 @@ AlertList::filter_alerts_for_publishing
             );
 
     for (auto alert : filtered_alerts) {
-        // TODO FIXME: get asset name here
-        int sep = alert.id().find ('@');
-        std::string name = alert.id().substr (sep+1);
+        std::string name = alert.name ();
         try {
             std::string logical_asset_name, logical_asset_ename, normal_state, port;
             std::shared_ptr<FullAsset> asset = FullAssetDatabase::getInstance ().getAsset (name);
@@ -169,7 +167,7 @@ std::vector<std::string>
 s_get_outcomes (fty_proto_t *msg)
 {
     std::vector<std::string> tmp = {};
-    int outcome_count = fty_proto_aux_number (msg, "outcome_items", 1);
+    int outcome_count = fty_proto_aux_number (msg, "outcome_count", 1);
     if (outcome_count == 1) {
         tmp[0] = fty_proto_aux_string (msg, "outcome", "ok");
     }
