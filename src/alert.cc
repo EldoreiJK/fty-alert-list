@@ -44,7 +44,7 @@ s_replace_tokens (
     std::vector<std::string> patterns = {"__severity__", "__name__", "__ename__", "__logicalasset_iname__", "__logicalasset__", "__normalstate__", "__port__", "__rule_result__"};
     std::vector<std::string> replacements = {severity, name, ename, logical_asset, logical_asset_ename, normal_state, port, rule_result};
 
-    for (int j = 1; j < outcomes.size (); j++) {
+    for (size_t j = 1; j < outcomes.size (); j++) {
         std::string outcome_patterns_key = std::string ("__outcome_") + std::to_string (j) + "__";
         patterns.push_back (outcome_patterns_key);
         replacements.push_back (outcomes [j]);
