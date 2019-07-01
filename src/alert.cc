@@ -1,18 +1,14 @@
 /*  =========================================================================
     alert - Alert representation
-
-    Copyright (C) 2019 Eaton
-
+    Copyright (C) 2014 - 2018 Eaton
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
-
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
-
     You should have received a copy of the GNU General Public License along
     with this program; if not, write to the Free Software Foundation, Inc.,
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
@@ -26,8 +22,8 @@
 @end
 */
 
-#include "alert.h"
 #include "fty_alert_list_classes.h"
+#include "alert.h"
 
 std::string
 s_replace_tokens (
@@ -41,7 +37,7 @@ s_replace_tokens (
         std::string port)
 {
     std::string rule_result = severity;
-    std::transform (rule_result.begin(), rule_result.end(), rule_result.begin(), ::tolower);
+    std::transform (rule_result.begin (), rule_result.end (), rule_result.begin (), ::tolower);
 
     // this list came from templateruleconfigurator
     std::vector<std::string> patterns = {"__severity__", "__name__", "__ename__", "__logicalasset_iname__", "__logicalasset__", "__normalstate__", "__port__", "__rule_result__"};
@@ -53,7 +49,7 @@ s_replace_tokens (
     {
         size_t pos = 0;
         while ((pos = result.find (p, pos)) != std::string::npos){
-            result.replace (pos, p.length(), replacements.at (i));
+            result.replace (pos, p.length (), replacements.at (i));
             pos += replacements.at (i).length ();
         }
         ++i;
@@ -69,8 +65,19 @@ Alert::update (fty_proto_t *msg)
         std::string msg ("Wrong fty-proto type");
         throw std::runtime_error (msg);
     }
+    int outcome_count = fty_proto_aux_number (msg, "outcome_count", 0);
     std::string outcome = fty_proto_aux_string (msg, "outcome", "ok");
-    m_Outcome = outcome;
+    if (outcome_count <= 0) {
+        m_Outcome.clear ();
+        m_Outcome.push_back (outcome);
+    } else {
+        m_Outcome.clear ();
+        for (int i = 0; i < outcome_count; ++i) {
+            std::string outcome_x_key = std::string ("outcome.") + std::to_string (i);
+            std::string outcome_x = fty_proto_aux_string (msg, outcome_x_key.c_str (), "");
+            m_Outcome.push_back (outcome_x);
+        }
+    }
     if (m_Ctime == 0) {
         m_Ctime = fty_proto_time (msg);
         m_Mtime = fty_proto_time (msg);
@@ -84,13 +91,17 @@ Alert::update (fty_proto_t *msg)
 void
 Alert::overwrite (fty_proto_t *msg)
 {
+    if (msg == nullptr)
+        return;
     if (fty_proto_id (msg) != FTY_PROTO_ALERT) {
         std::string msg ("Wrong fty-proto type");
         throw std::runtime_error (msg);
     }
     if (!isAckState (m_State)) {
-        log_trace ("switching state to %s", fty_proto_state (msg));
-        m_State = StringToAlertState (fty_proto_state (msg));
+        const char *state = nullptr;
+        state = fty_proto_state (msg);
+        if (state != nullptr)
+            m_State = StringToAlertState (state);
     }
     m_Ctime = fty_proto_time (msg);
     m_Mtime = fty_proto_time (msg);
@@ -99,10 +110,11 @@ Alert::overwrite (fty_proto_t *msg)
 void
 Alert::overwrite (GenericRule rule)
 {
-    m_Id = rule.getName ();
+    //m_Id = rule.getName ();
     m_Results = rule.getResults ();
     m_State = RESOLVED;
-    m_Outcome = "ok";
+    m_Outcome.clear ();
+    m_Outcome.push_back ("ok");
     m_Ctime = 0;
     m_Mtime = 0;
     m_Ttl = std::numeric_limits<uint64_t>::max ();
@@ -116,7 +128,8 @@ Alert::cleanup ()
 {
     uint64_t now = zclock_mono ()/1000;
     m_State = RESOLVED;
-    m_Outcome = "ok";
+    m_Outcome.clear ();
+    m_Outcome.push_back ("ok");
     m_Ctime = now;
     m_Mtime = now;
     m_Severity.clear ();
@@ -181,28 +194,26 @@ Alert::toFtyProto (
         zlist_append (actions, (void *) action.c_str ());
     }
 
-    int sep = m_Id.find ('@');
-    std::string rule = m_Id.substr (0, sep);
-    std::string name = m_Id.substr (sep+1);
+    //int sep = m_Id.find ('@');
+    //std::string rule = m_Id.substr (0, sep);
+    //std::string name = m_Id.substr (sep+1);
 
     std::string description = s_replace_tokens (
             m_Description,
             m_Severity,
-            name,
+            m_Name,
             ename,
             logical_asset,
             logical_asset_ename,
             normal_state,
             port);
 
-    log_debug ("Alert description is '%s'", description.c_str ());
-
     zmsg_t *tmp = fty_proto_encode_alert (
             aux,
             m_Mtime,
             m_Ttl,
-            rule.c_str (),
-            name.c_str (),
+            m_Rule.c_str (),
+            m_Name.c_str (),
             AlertStateToString (m_State).c_str (),
             m_Severity.c_str (),
             description.c_str (),
@@ -215,21 +226,21 @@ Alert::toFtyProto (
 }
 
 zmsg_t *
-Alert::StaleToFtyProto()
+Alert::StaleToFtyProto ()
 {
     zhash_t *aux = zhash_new ();
     zlist_t *actions = zlist_new ();
 
-    int sep = m_Id.find ('@');
-    std::string rule = m_Id.substr (0, sep);
-    std::string name = m_Id.substr (sep+1);
+    //int sep = m_Id.find ('@');
+    //std::string rule = m_Id.substr (0, sep);
+    //std::string name = m_Id.substr (sep+1);
 
     zmsg_t *tmp = fty_proto_encode_alert (
             aux,
             m_Mtime,
             m_Ttl,
-            rule.c_str (),
-            name.c_str (),
+            m_Rule.c_str (),
+            m_Name.c_str (),
             AlertStateToString (m_State).c_str (),
             "",
             "",
@@ -242,24 +253,27 @@ Alert::StaleToFtyProto()
 }
 
 zmsg_t *
-Alert::TriggeredToFtyProto()
+Alert::TriggeredToFtyProto ()
 {
     zhash_t *aux = zhash_new ();
     zhash_autofree (aux);
-    zhash_insert (aux, "outcome", (void *) m_Outcome.c_str ());
+    zhash_insert (aux, "outcome", (void *) m_Outcome[0].c_str ());
+    if (m_Outcome.size () > 1) {
+        zhash_insert (aux, "outcome_count", (void *) std::to_string (m_Outcome.size ()).c_str ());
+        for (size_t i = 0; i < m_Outcome.size (); ++i) {
+            std::string outcome_x_key = std::string ("outcome.") + std::to_string (i);
+            zhash_insert (aux, outcome_x_key.c_str (), (void *) std::to_string (m_Outcome.size ()).c_str ());
+        }
+    }
 
     zlist_t *actions = zlist_new ();
-
-    int sep = m_Id.find ('@');
-    std::string rule = m_Id.substr (0, sep);
-    std::string name = m_Id.substr (sep+1);
 
     zmsg_t *tmp = fty_proto_encode_alert (
             aux,
             m_Mtime,
             m_Ttl,
-            rule.c_str (),
-            name.c_str (),
+            m_Rule.c_str (),
+            m_Name.c_str (),
             AlertStateToString (m_State).c_str (),
             "",
             "",
@@ -291,7 +305,7 @@ alert_test (bool verbose)
 {
     //  @selftest
     printf (" * alert: ");
-    std::string rule = "average.temperature";
+    std::string rule = "average.temperature@datacenter-3";
     std::string name = "datacenter-3";
 
     // put in proper results
@@ -325,7 +339,8 @@ alert_test (bool verbose)
     uint64_t now = zclock_time () / 1000;
     // create fty-proto msg
     {
-        Alert alert (rule + "@" + name, tmp);
+        Alert alert (rule, name, "RESOLVED");
+        alert.setResults (tmp);
         assert (alert.outcome () == "ok");
         assert (alert.ctime () == 0);
         assert (alert.mtime () == 0);
@@ -360,6 +375,7 @@ alert_test (bool verbose)
         assert (alert.outcome () == "high_warning");
         assert (alert.ctime () == now);
         assert (alert.ttl () == ttl);
+        log_error ("%s", alert.severity ().c_str ());
         assert (alert.severity () == "WARNING");
         assert (alert.description () == "Average temperature in __ename__ is high");
         assert (alert.actions ()[0] == "EMAIL");
@@ -382,6 +398,7 @@ alert_test (bool verbose)
         fty_proto_t *fty_alert_msg = fty_proto_decode (&alert_msg);
         assert (fty_proto_aux_number (fty_alert_msg, "ctime", 0) == now);
         assert (fty_proto_time (fty_alert_msg) == now);
+        log_error ("%s", fty_proto_rule (fty_alert_msg));
         assert (streq (fty_proto_rule (fty_alert_msg), rule.c_str ()));
         assert (streq (fty_proto_name (fty_alert_msg), name.c_str ()));
         assert (fty_proto_ttl (fty_alert_msg) == ttl);
@@ -449,6 +466,7 @@ alert_test (bool verbose)
         fty_proto_t *fty_alert2_msg = fty_proto_decode (&alert2_msg);
         assert (streq (fty_proto_aux_string (fty_alert2_msg, "outcome", ""), "high_critical"));
         assert (streq (fty_proto_rule (fty_alert2_msg), rule.c_str ()));
+
         assert (streq (fty_proto_name (fty_alert2_msg), name.c_str ()));
         fty_proto_destroy (&fty_alert2_msg);
     }

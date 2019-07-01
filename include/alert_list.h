@@ -23,6 +23,7 @@
 #define ALERT_LIST_H_INCLUDED
 
 #include "alert.h"
+#include "rule.h"
 
 //  @interface
 class AlertList {
@@ -53,6 +54,7 @@ class AlertList {
 
         mlm_client_t *m_Mailbox_client;
         mlm_client_t *m_Stream_client;
+        std::map<std::string, Rule::ResultsMap> m_Rule_cache;
         std::map<std::string, std::shared_ptr<Alert>> m_Alert_cache;
         std::map<std::string, std::vector<std::shared_ptr<Alert>>> m_Asset_alerts;
         std::map<std::string, uint64_t> m_Last_send;
