@@ -1,18 +1,14 @@
 /*  =========================================================================
     alert - Alert representation
-
-    Copyright (C) 2019 Eaton
-
+    Copyright (C) 2014 - 2018 Eaton
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
-
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
-
     You should have received a copy of the GNU General Public License along
     with this program; if not, write to the Free Software Foundation, Inc.,
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
@@ -23,8 +19,9 @@
 #define ALERT_H_INCLUDED
 
 #include <limits>
+#include <fty_proto.h>
+
 #include "rule.h"
-#include "fty_proto.h"
 
 //  @interface
 class Alert {
@@ -33,7 +30,17 @@ class Alert {
             m_Id (id),
             m_Results (results),
             m_State (RESOLVED),
-            m_Outcome ("ok"),
+            m_Outcome ({"ok"}),
+            m_Ctime (0),
+            m_Mtime (0),
+            m_Ttl (std::numeric_limits<uint64_t>::max ())
+        {}
+        explicit Alert (std::string rulename, std::string asset, std::string state):
+            m_Id (rulename + "/" + asset),
+            m_Name (asset),
+            m_Rule (rulename),
+            m_State (StringToAlertState (state)),
+            m_Outcome ({"ok"}),
             m_Ctime (0),
             m_Mtime (0),
             m_Ttl (std::numeric_limits<uint64_t>::max ())
@@ -42,14 +49,18 @@ class Alert {
         std::string id () { return m_Id; }
         void setResults (Rule::ResultsMap results)
             { m_Results = results; }
-        std::string outcome () { return m_Outcome; }
         std::string state () { return AlertStateToString (m_State); }
+        void setState (std::string state) { m_State = StringToAlertState (state); }
         uint64_t ctime () { return m_Ctime; }
         void setCtime (uint64_t ctime) { m_Ctime = ctime; }
         uint64_t mtime () { return m_Mtime; }
         void setMtime (uint64_t mtime) { m_Mtime = mtime; }
         uint64_t ttl () { return m_Ttl; }
         void setTtl (uint64_t ttl) { m_Ttl = ttl; }
+        std::string outcome () { return m_Outcome[0]; }
+        void setOutcome (std::string outcome) { m_Outcome.clear (); m_Outcome.push_back (outcome); }
+        std::vector<std::string> outcomes () { return m_Outcome; }
+        void setOutcomes (std::vector<std::string> outcomes) { m_Outcome = outcomes; }
         std::string severity () { return m_Severity; }
         std::string description () { return m_Description; }
         std::vector<std::string> actions () { return m_Actions; }
@@ -68,6 +79,7 @@ class Alert {
                 std::string port);
         zmsg_t *StaleToFtyProto ();
         zmsg_t *TriggeredToFtyProto ();
+        //friend void alert_test (bool verbose);
     private:
         enum AlertState : uint8_t
         {
@@ -120,9 +132,11 @@ class Alert {
         }
 
         std::string m_Id;
+        std::string m_Name;
+        std::string m_Rule;
         Rule::ResultsMap m_Results;
         AlertState m_State;
-        std::string m_Outcome;
+        std::vector<std::string> m_Outcome;
         uint64_t m_Ctime;
         uint64_t m_Mtime;
         uint64_t m_Ttl;
@@ -131,6 +145,10 @@ class Alert {
         std::vector<std::string> m_Actions;
 };
 void alert_test (bool verbose);
+
+///  Self test of this class
+//FTY_ALERT_ENGINE_PRIVATE void
+//    alert_test (bool verbose);
 //  @end
 
 #endif

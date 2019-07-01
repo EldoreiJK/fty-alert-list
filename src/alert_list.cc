@@ -67,6 +67,7 @@ AlertList::filter_alerts_for_publishing
             );
 
     for (auto alert : filtered_alerts) {
+        // TODO FIXME: get asset name here
         int sep = alert.id().find ('@');
         std::string name = alert.id().substr (sep+1);
         try {
@@ -104,9 +105,10 @@ AlertList::handle_rule (std::string rule)
 {
     GenericRule deserialized_rule (rule);
     std::string id = deserialized_rule.getName ();
-    auto pos = m_Alert_cache.find (id);
+    auto pos = m_Rule_cache.find (id);
     // new rule
-    if (pos == m_Alert_cache.end ()) {
+    if (pos == m_Rule_cache.end ()) {
+        m_Rule_cache.insert (std::pair<std::string, Rule::ResultsMap> (id, deserialized_rule.getResults ()));
         for (auto asset : deserialized_rule.getAssets ()) {
             try {
                 std::shared_ptr<FullAsset> full_asset = FullAssetDatabase::getInstance ().getAsset (asset);
@@ -129,10 +131,9 @@ AlertList::handle_rule (std::string rule)
                             log_warning("unexpected response from ASSET AGENT, ignoring this alert.");
                         }
                         log_debug("received alert for %s, asked for it and was successful", asset.c_str ());
-                        Alert rule_alert (id, deserialized_rule.getResults());
-                        std::shared_ptr<Alert> rule_alert_ptr = std::make_shared<Alert> (rule_alert);
-                        m_Alert_cache.insert (std::pair<std::string, std::shared_ptr<Alert>> (id, rule_alert_ptr));
-                        m_Asset_alerts[asset].push_back (rule_alert_ptr);
+                        //Alert rule_alert (id, deserialized_rule.getResults());
+                        //std::shared_ptr<Alert> rule_alert_ptr = std::make_shared<Alert> (rule_alert);
+                        //m_Asset_alerts[asset].push_back (rule_alert_ptr);
                     }
                     else {
                         log_warning("received alert for unknown asset, ignoring.");
@@ -144,17 +145,43 @@ AlertList::handle_rule (std::string rule)
                 }
                 zuuid_destroy (&uuid);
             }
-            Alert rule_alert (id, deserialized_rule.getResults());
-            std::shared_ptr<Alert> rule_alert_ptr = std::make_shared<Alert> (rule_alert);
-            m_Alert_cache.insert (std::pair<std::string, std::shared_ptr<Alert>> (id, rule_alert_ptr));
-            m_Asset_alerts[asset].push_back (rule_alert_ptr);
+            //Alert rule_alert (id, deserialized_rule.getResults());
+            //std::shared_ptr<Alert> rule_alert_ptr = std::make_shared<Alert> (rule_alert);
+            //m_Alert_cache.insert (std::pair<std::string, std::shared_ptr<Alert>> (id, rule_alert_ptr));
+            //m_Asset_alerts[asset].push_back (rule_alert_ptr);
         }
     }
     // update of old rule
     else {
-        pos->second->overwrite (deserialized_rule);
+        pos->second = deserialized_rule.getResults ();
+        for (auto asset : deserialized_rule.getAssets ()) {
+            std::string key = id + "/" + asset;
+            m_Alert_cache[key]->overwrite (deserialized_rule);
+            //m_Alert_cache[key]->setResults (deserialized_rule.getResults ());
+            // this should clean up also in m_Asset_alerts
+        }
+        //pos->second->overwrite (deserialized_rule);
     }
     return id;
+}
+
+std::vector<std::string>
+s_get_outcomes (fty_proto_t *msg)
+{
+    std::vector<std::string> tmp = {};
+    int outcome_count = fty_proto_aux_number (msg, "outcome_items", 1);
+    if (outcome_count == 1) {
+        tmp[0] = fty_proto_aux_string (msg, "outcome", "ok");
+    }
+    else {
+        for (int i = 1; i <= outcome_count; i++) {
+            std::string key ("outcome.");
+            key += std::to_string (i);
+            tmp[i-1] = fty_proto_aux_string (msg, key.c_str (), "ok");
+        }
+    }
+
+    return tmp;
 }
 
 // This function receives alerts from FTY_PROTO_STREAM_ALERTS_SYS.
@@ -166,17 +193,32 @@ AlertList::handle_alert (fty_proto_t *fty_new_alert, std::string subject)
     bool should_overwrite = false;
 
     // check if alert is in the cache
-    std::string new_alert_id = std::string (fty_proto_rule (fty_new_alert));
+    std::string new_alert_id = subject;
+    std::string rulename = fty_proto_rule (fty_new_alert);
+    std::string asset = fty_proto_name (fty_new_alert);
+
+    auto rule = m_Rule_cache.find (rulename);
+    if (rule == m_Rule_cache.end ()) {
+        log_error ("Alert for non-existing rule %s", rulename.c_str ());
+        fty_proto_destroy (&fty_new_alert);
+        return;
+    }
+
     auto old_alert = m_Alert_cache.find (new_alert_id);
     if (old_alert == m_Alert_cache.end ()) {
-         log_error ("Alert for non-existing rule %s", new_alert_id.c_str ());
+        Alert alert (rulename, asset, fty_proto_state (fty_new_alert));
+        alert.setResults (rule->second);
+
+        std::shared_ptr<Alert> alert_ptr = std::make_shared<Alert> (alert);
+        m_Alert_cache.insert (std::pair<std::string, std::shared_ptr<Alert>> (new_alert_id, alert_ptr));
+        m_Asset_alerts[asset].push_back (alert_ptr);
     }
     else {
         std::string old_state_str = old_alert->second->state();
         uint64_t old_last_sent = m_Last_send [new_alert_id];
-        std::string old_outcome = old_alert->second->outcome ();
-        std::string new_outcome = fty_proto_aux_string (fty_new_alert, "outcome", "ok");
-        bool same_outcome = (old_outcome == new_outcome);
+        std::vector<std::string> old_outcomes = old_alert->second->outcomes ();
+        std::vector<std::string> new_outcomes = s_get_outcomes (fty_new_alert);
+        bool same_outcome = (old_outcomes == new_outcomes);
 
         old_alert->second->update (fty_new_alert);
         const char *old_state = old_state_str.c_str ();
@@ -752,7 +794,7 @@ alert_list_test (bool verbose)
             );
     zlist_destroy (&fty_actions);
     zhash_destroy (&aux);
-    rv = mlm_client_send (alert_producer, "CREATE", &resolved_alert);
+    rv = mlm_client_send (alert_producer, "RESOLVE", &resolved_alert);
     assert (rv == 0);
 
     zclock_sleep (1000);
