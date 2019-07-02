@@ -442,7 +442,8 @@ alert_test (bool verbose)
 
     {
         // create alert2 - triggered
-        Alert alert2 (rule + "@" + name, tmp);
+        Alert alert2 (rule, name, "ACTIVE");
+        alert2.setResults (tmp);
 
         zhash_t *aux = zhash_new ();
         zhash_autofree (aux);
@@ -481,7 +482,8 @@ alert_test (bool verbose)
 
     {
         // create alert3, overwrite it with a Rule
-        Alert alert3 (rule + "@" + name, tmp);
+        Alert alert3 (rule, name, "RESOLVED");
+        alert3.setResults (tmp);
         std::string rule_json ("{\"test\":{\"name\":\"metric@asset1\",\"categories\":[\"CAT_ALL\"],\"metrics\":[\"");
         rule_json += "metric1\"],\"results\":[{\"ok\":{\"action\":[],\"severity\":\"CRITICAL\",\"description\":\"";
         rule_json += "ok_description\",\"threshold_name\":\"\"}}],\"assets\":[\"asset1\"],\"values\":[{\"var1\":\"val1\"},{\"";
@@ -533,8 +535,9 @@ alert_test (bool verbose)
         fty_proto_t *fty_alert_msg = fty_proto_decode (&alert_msg);
         assert (fty_proto_aux_number (fty_alert_msg, "ctime", 0) == now);
         assert (fty_proto_time (fty_alert_msg) == now);
-        assert (streq (fty_proto_rule (fty_alert_msg), "metric"));
-        assert (streq (fty_proto_name (fty_alert_msg), "asset1"));
+        log_error ("%s", fty_proto_rule (fty_alert_msg));
+        assert (streq (fty_proto_rule (fty_alert_msg), rule.c_str ()));
+        assert (streq (fty_proto_name (fty_alert_msg), name.c_str ()));
         assert (fty_proto_ttl (fty_alert_msg) == ttl);
         assert (streq (fty_proto_severity (fty_alert_msg), "CRITICAL"));
         assert (streq (fty_proto_state (fty_alert_msg), "RESOLVED"));
