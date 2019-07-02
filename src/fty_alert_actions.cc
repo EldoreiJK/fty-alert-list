@@ -1371,7 +1371,7 @@ fty_alert_actions_test (bool verbose)
 
     // test 8, send asset with e-mail + send an alert on the already known correct asset (with e-mail action)
     // + check that we send SENDMAIL_ALERT message
-    {
+    /*{
         log_debug("test 8");
         //      1. send asset info
         const char *asset_name = "ASSET";
@@ -1438,7 +1438,7 @@ fty_alert_actions_test (bool verbose)
         assert ( streq (fty_proto_description (alert), "ASDFKLHJH") );
         assert ( streq (fty_proto_action_first (alert), "EMAIL") );
         fty_proto_destroy (&alert);
-    }
+    }*/
 
     // test9, send asset + send an alert on the already known correct asset (with GPO action)
     // + check that we send GPO_INTERACTION message

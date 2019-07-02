@@ -117,13 +117,14 @@ AlertList::handle_rule (std::string rule)
                 zpoller_t *asset_helper = zpoller_new (mlm_client_msgpipe (m_Mailbox_client), NULL);
                 mlm_client_sendtox (m_Mailbox_client, AGENT_FTY_ASSET, "ASSET_DETAIL", "GET",
                         zuuid_str_canonical (uuid), asset.c_str (), NULL);
-                void *which = zpoller_wait (asset_helper, 5);
+                void *which = zpoller_wait (asset_helper, 15);
                 if (which == NULL) {
                     log_warning("no response from ASSET AGENT, ignoring this alert.");
                 } else {
                     zmsg_t *reply_msg = mlm_client_recv (m_Mailbox_client);
                     ZstrGuard rcv_uuid (zmsg_popstr (reply_msg));
-                    if ((rcv_uuid == zuuid_str_canonical (uuid)) && fty_proto_is (reply_msg)) {
+                    log_error ("%s = %s", zuuid_str_canonical (uuid), rcv_uuid.get ());
+                    if (streq (rcv_uuid.get (), zuuid_str_canonical (uuid))) {
                         fty_proto_t *reply_proto_msg = fty_proto_decode (&reply_msg);
                         if (fty_proto_id (reply_proto_msg) != FTY_PROTO_ASSET) {
                             log_warning("unexpected response from ASSET AGENT, ignoring this alert.");
@@ -166,16 +167,21 @@ AlertList::handle_rule (std::string rule)
 std::vector<std::string>
 s_get_outcomes (fty_proto_t *msg)
 {
+    fty_proto_print (msg);
     std::vector<std::string> tmp = {};
-    int outcome_count = fty_proto_aux_number (msg, "outcome_count", 1);
+    size_t outcome_count = fty_proto_aux_number (msg, "outcome_count", 1);
     if (outcome_count == 1) {
-        tmp[0] = fty_proto_aux_string (msg, "outcome", "ok");
+        log_error ("%s", fty_proto_aux_string (msg, "outcome", "ok"));
+        //char *aux_str = strdup (fty_proto_aux_string (msg, "outcome", "ok"));
+        //tmp[0] = std::string (aux_str);
+        tmp.push_back (fty_proto_aux_string (msg, "outcome", "ok"));
+        //zstr_free (&aux_str);
     }
     else {
         for (int i = 1; i <= outcome_count; i++) {
             std::string key ("outcome.");
             key += std::to_string (i);
-            tmp[i-1] = fty_proto_aux_string (msg, key.c_str (), "ok");
+            tmp.push_back (fty_proto_aux_string (msg, key.c_str (), "ok"));
         }
     }
 
@@ -206,10 +212,13 @@ AlertList::handle_alert (fty_proto_t *fty_new_alert, std::string subject)
     if (old_alert == m_Alert_cache.end ()) {
         Alert alert (rulename, asset, fty_proto_state (fty_new_alert));
         alert.setResults (rule->second);
+        alert.update (fty_new_alert);
 
         std::shared_ptr<Alert> alert_ptr = std::make_shared<Alert> (alert);
         m_Alert_cache.insert (std::pair<std::string, std::shared_ptr<Alert>> (new_alert_id, alert_ptr));
         m_Asset_alerts[asset].push_back (alert_ptr);
+
+        should_send = true;
     }
     else {
         std::string old_state_str = old_alert->second->state();
@@ -265,20 +274,20 @@ AlertList::handle_alert (fty_proto_t *fty_new_alert, std::string subject)
             fty_proto_aux_insert (fty_new_alert, "ctime", "%" PRIu64, fty_proto_time (fty_new_alert));
             old_alert->second->overwrite (fty_new_alert);
         }
+    }
 
-        if (should_send) {
-            fty_proto_t *alert_dup = fty_proto_dup (fty_new_alert);
-            zmsg_t *encoded = fty_proto_encode (&alert_dup);
-            assert (encoded);
+    if (should_send) {
+        fty_proto_t *alert_dup = fty_proto_dup (fty_new_alert);
+        zmsg_t *encoded = fty_proto_encode (&alert_dup);
+        assert (encoded);
 
-            int rv = mlm_client_send (m_Stream_client, subject.c_str (), &encoded);
-            if (rv == -1) {
-                log_error ("mlm_client_send (subject = '%s') failed", subject.c_str ());
-                zmsg_destroy (&encoded);
-            }
-            else {
-                m_Last_send [new_alert_id] = zclock_mono ()/1000;
-            }
+        int rv = mlm_client_send (m_Stream_client, subject.c_str (), &encoded);
+        if (rv == -1) {
+            log_error ("mlm_client_send (subject = '%s') failed", subject.c_str ());
+            zmsg_destroy (&encoded);
+        }
+        else {
+            m_Last_send [new_alert_id] = zclock_mono ()/1000;
         }
     }
     fty_proto_destroy (&fty_new_alert);
@@ -576,7 +585,9 @@ alert_list_test (bool verbose)
     //  @selftest
     //  Simple create/destroy test
     {
+        log_debug ("Test #1");
         AlertList alert_list_server_tmp();
+        log_debug ("Test #1 OK");
     }
 
     static const char* endpoint = "inproc://fty-alert-list-test";
@@ -611,6 +622,7 @@ alert_list_test (bool verbose)
 
     zclock_sleep (1000);
     {
+    log_debug ("Test #2");
     uint64_t now = zclock_mono () / 1000;
 
     // send asset - DC
@@ -678,7 +690,7 @@ alert_list_test (bool verbose)
             "",
             fty_actions
             );
-    rv = mlm_client_send (alert_producer, "CREATE", &active_alert);
+    rv = mlm_client_send (alert_producer, "average.mana@testdatacenter/testdatacenter", &active_alert);
     assert (rv == 0);
     zlist_destroy (&fty_actions);
     zhash_destroy (&alert_aux);
@@ -709,9 +721,11 @@ alert_list_test (bool verbose)
     zmsg_t *tmp = zmsg_popmsg (listall_reply);
     fty_proto_t *fty_tmp = fty_proto_decode (&tmp);
     assert (fty_proto_id (fty_tmp) == FTY_PROTO_ALERT);
+    fty_proto_print (fty_tmp);
+
     assert (fty_proto_aux_number (fty_tmp, "ctime", 0) == now);
     assert (fty_proto_time (fty_tmp) == now);
-    assert (streq (fty_proto_rule (fty_tmp), "average.mana"));
+    assert (streq (fty_proto_rule (fty_tmp), "average.mana@testdatacenter"));
     assert (streq (fty_proto_name (fty_tmp), "testdatacenter"));
     assert (fty_proto_ttl (fty_tmp) == ttl);
     assert (streq (fty_proto_severity (fty_tmp), "CRITICAL"));
@@ -752,7 +766,7 @@ alert_list_test (bool verbose)
     assert (fty_proto_id (fty_tmp) == FTY_PROTO_ALERT);
     assert (fty_proto_aux_number (fty_tmp, "ctime", 0) == now);
     assert (fty_proto_time (fty_tmp) == now);
-    assert (streq (fty_proto_rule (fty_tmp), "average.mana"));
+    assert (streq (fty_proto_rule (fty_tmp), "average.mana@testdatacenter"));
     assert (streq (fty_proto_name (fty_tmp), "testdatacenter"));
     assert (fty_proto_ttl (fty_tmp) == ttl);
     assert (streq (fty_proto_severity (fty_tmp), "CRITICAL"));
@@ -765,10 +779,12 @@ alert_list_test (bool verbose)
     tmp = zmsg_popmsg (list_reply);
     assert (tmp == NULL);
     zmsg_destroy (&list_reply);
+        log_debug ("Test #2 OK");
     }
 
     {
     // send RESOLVED alert
+    log_debug ("Test #3");
     uint64_t now = zclock_mono () / 1000;
 
     zhash_t *aux = zhash_new ();
@@ -792,7 +808,7 @@ alert_list_test (bool verbose)
             );
     zlist_destroy (&fty_actions);
     zhash_destroy (&aux);
-    rv = mlm_client_send (alert_producer, "RESOLVE", &resolved_alert);
+    rv = mlm_client_send (alert_producer, "average.mana@testdatacenter/testdatacenter", &resolved_alert);
     assert (rv == 0);
 
     zclock_sleep (1000);
@@ -823,7 +839,7 @@ alert_list_test (bool verbose)
     log_error ("%d = %d", fty_proto_aux_number (fty_tmp, "ctime", 0), mtime);
     assert (fty_proto_aux_number (fty_tmp, "ctime", 0) == mtime);
     assert (fty_proto_time (fty_tmp) == mtime);
-    assert (streq (fty_proto_rule (fty_tmp), "average.mana"));
+    assert (streq (fty_proto_rule (fty_tmp), "average.mana@testdatacenter"));
     assert (streq (fty_proto_name (fty_tmp), "testdatacenter"));
     assert (fty_proto_ttl (fty_tmp) == ttl);
     assert (streq (fty_proto_severity (fty_tmp), "CRITICAL"));
@@ -836,9 +852,11 @@ alert_list_test (bool verbose)
     tmp = zmsg_popmsg (reply);
     assert (tmp == NULL);
     zmsg_destroy (&reply);
+        log_debug ("Test #3 OK");
     }
 
     {
+    log_debug ("Test #4");
     // send ACTIVE alert
     uint64_t now = zclock_mono () / 1000;
 
@@ -863,7 +881,7 @@ alert_list_test (bool verbose)
             );
     zlist_destroy (&fty_actions);
     zhash_destroy (&aux);
-    rv = mlm_client_send (alert_producer, "CREATE", &active_alert);
+    rv = mlm_client_send (alert_producer, "average.mana@testdatacenter/testdatacenter", &active_alert);
     assert (rv == 0);
 
     // wait for TTL to time out
@@ -879,6 +897,8 @@ alert_list_test (bool verbose)
     rv = mlm_client_sendto (ui, alert_list_test_address, RFC_ALERTS_LIST_SUBJECT, NULL, 5000, &listall_msg);
 
     zmsg_t *reply = mlm_client_recv (ui);
+    //zmsg_print (reply);
+    log_error ("END");
     char *str = zmsg_popstr (reply);
     assert (streq (str, zuuid_str_canonical (uuid)));
     zstr_free (&str);
@@ -892,10 +912,12 @@ alert_list_test (bool verbose)
 
     zmsg_t *tmp = zmsg_popmsg (reply);
     fty_proto_t *fty_tmp = fty_proto_decode (&tmp);
+    fty_proto_print (fty_tmp);
+    log_error ("END");
     assert (fty_proto_id (fty_tmp) == FTY_PROTO_ALERT);
     assert (fty_proto_aux_number (fty_tmp, "ctime", 0) >= mtime);
     assert (fty_proto_time (fty_tmp) >= mtime );
-    assert (streq (fty_proto_rule (fty_tmp), "average.mana"));
+    assert (streq (fty_proto_rule (fty_tmp), "average.mana@testdatacenter"));
     assert (streq (fty_proto_name (fty_tmp), "testdatacenter"));
     assert (fty_proto_ttl (fty_tmp) == ttl);
     assert (streq (fty_proto_severity (fty_tmp), ""));
@@ -904,10 +926,12 @@ alert_list_test (bool verbose)
     zlist_t *fty_alert_msg_actions = fty_proto_action (fty_tmp);
     assert (zlist_first (fty_alert_msg_actions) == NULL);
     fty_proto_destroy (&fty_tmp);
+    tmp = NULL;
 
     tmp = zmsg_popmsg (reply);
     assert (tmp == NULL);
     zmsg_destroy (&reply);
+        log_debug ("Test #4 OK");
     }
 
     mlm_client_destroy (&ui);
