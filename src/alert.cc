@@ -34,7 +34,8 @@ s_replace_tokens (
         std::string logical_asset,
         std::string logical_asset_ename,
         std::string normal_state,
-        std::string port)
+        std::string port,
+        std::vector<std::string> outcomes)
 {
     std::string rule_result = severity;
     std::transform (rule_result.begin (), rule_result.end (), rule_result.begin (), ::tolower);
@@ -42,6 +43,12 @@ s_replace_tokens (
     // this list came from templateruleconfigurator
     std::vector<std::string> patterns = {"__severity__", "__name__", "__ename__", "__logicalasset_iname__", "__logicalasset__", "__normalstate__", "__port__", "__rule_result__"};
     std::vector<std::string> replacements = {severity, name, ename, logical_asset, logical_asset_ename, normal_state, port, rule_result};
+
+    for (size_t j = 1; j < outcomes.size (); j++) {
+        std::string outcome_patterns_key = std::string ("__outcome_") + std::to_string (j) + "__";
+        patterns.push_back (outcome_patterns_key);
+        replacements.push_back (outcomes [j]);
+    }
 
     std::string result = desc;
     int i = 0;
@@ -206,7 +213,8 @@ Alert::toFtyProto (
             logical_asset,
             logical_asset_ename,
             normal_state,
-            port);
+            port,
+            m_Outcome);
 
     zmsg_t *tmp = fty_proto_encode_alert (
             aux,
