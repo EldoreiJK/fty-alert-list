@@ -90,9 +90,18 @@ Alert::update (fty_proto_t *msg)
         m_Mtime = fty_proto_time (msg);
     }
     m_Ttl = fty_proto_ttl (msg);
-    m_Severity = m_Results[outcome].severity_;
-    m_Description = m_Results[outcome].description_;
-    m_Actions = m_Results[outcome].actions_;
+    if (m_Results == nullptr) {
+        log_debug ("Results are null for rule %s",  m_Rule.c_str ());
+    } else {
+        auto outcome_it = m_Results->find (outcome);
+        if (outcome_it != m_Results->end ()) {
+            m_Severity = outcome_it->second.severity_;
+            m_Description = outcome_it->second.description_;
+            m_Actions = outcome_it->second.actions_;
+        } else {
+            log_error ("Missing outcome '%s' for rule '%s'", outcome.c_str (), m_Rule.c_str ());
+        }
+    }
 }
 
 void
@@ -115,10 +124,9 @@ Alert::overwrite (fty_proto_t *msg)
 }
 
 void
-Alert::overwrite (GenericRule rule)
+Alert::overwrite (GenericRule &rule)
 {
     //m_Id = rule.getName ();
-    m_Results = rule.getResults ();
     m_State = RESOLVED;
     m_Outcome.clear ();
     m_Outcome.push_back ("ok");
@@ -347,8 +355,9 @@ alert_test (bool verbose)
     uint64_t now = zclock_time () / 1000;
     // create fty-proto msg
     {
+        log_debug ("Testt #1");
         Alert alert (rule, name, "RESOLVED");
-        alert.setResults (tmp);
+        alert.setResults (std::make_shared<Rule::ResultsMap> (tmp));
         assert (alert.outcome () == "ok");
         assert (alert.ctime () == 0);
         assert (alert.mtime () == 0);
@@ -438,12 +447,14 @@ alert_test (bool verbose)
         zlist_t *alert_stale_msg_actions = fty_proto_action (fty_alert_stale_msg);
         assert ((const char *) zlist_first (alert_stale_msg_actions) ==  NULL);
         fty_proto_destroy (&fty_alert_stale_msg);
+        log_debug ("Test #1 OK");
     }
 
     {
+        log_debug ("Test #2");
         // create alert2 - triggered
         Alert alert2 (rule, name, "ACTIVE");
-        alert2.setResults (tmp);
+        alert2.setResults (std::make_shared<Rule::ResultsMap> (tmp));
 
         zhash_t *aux = zhash_new ();
         zhash_autofree (aux);
@@ -478,12 +489,14 @@ alert_test (bool verbose)
 
         assert (streq (fty_proto_name (fty_alert2_msg), name.c_str ()));
         fty_proto_destroy (&fty_alert2_msg);
+        log_debug ("Test #2 OK");
     }
 
     {
+        log_debug ("Test #3");
         // create alert3, overwrite it with a Rule
         Alert alert3 (rule, name, "RESOLVED");
-        alert3.setResults (tmp);
+        alert3.setResults (std::make_shared<Rule::ResultsMap> (tmp));
         std::string rule_json ("{\"test\":{\"name\":\"metric@asset1\",\"categories\":[\"CAT_ALL\"],\"metrics\":[\"");
         rule_json += "metric1\"],\"results\":[{\"ok\":{\"action\":[],\"severity\":\"CRITICAL\",\"description\":\"";
         rule_json += "ok_description\",\"threshold_name\":\"\"}}],\"assets\":[\"asset1\"],\"values\":[{\"var1\":\"val1\"},{\"";
@@ -535,7 +548,6 @@ alert_test (bool verbose)
         fty_proto_t *fty_alert_msg = fty_proto_decode (&alert_msg);
         assert (fty_proto_aux_number (fty_alert_msg, "ctime", 0) == now);
         assert (fty_proto_time (fty_alert_msg) == now);
-        log_error ("%s", fty_proto_rule (fty_alert_msg));
         assert (streq (fty_proto_rule (fty_alert_msg), rule.c_str ()));
         assert (streq (fty_proto_name (fty_alert_msg), name.c_str ()));
         assert (fty_proto_ttl (fty_alert_msg) == ttl);
@@ -545,6 +557,7 @@ alert_test (bool verbose)
         zlist_t *fty_alert_msg_actions = fty_proto_action (fty_alert_msg);
         assert ((const char *) zlist_first (fty_alert_msg_actions) ==  NULL);
         fty_proto_destroy (&fty_alert_msg);
+        log_debug ("Test #3 OK");
     }
     //  @end
     printf ("OK\n");
