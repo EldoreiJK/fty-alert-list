@@ -189,7 +189,7 @@ s_get_outcomes (fty_proto_t *msg)
         tmp.push_back (fty_proto_aux_string (msg, "outcome", "ok"));
     }
     else {
-        for (int i = 1; i <= outcome_count; i++) {
+        for (size_t i = 1; i <= outcome_count; i++) {
             std::string key ("outcome.");
             key += std::to_string (i);
             tmp.push_back (fty_proto_aux_string (msg, key.c_str (), "ok"));
