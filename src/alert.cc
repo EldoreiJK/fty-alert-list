@@ -90,9 +90,18 @@ Alert::update (fty_proto_t *msg)
         m_Mtime = fty_proto_time (msg);
     }
     m_Ttl = fty_proto_ttl (msg);
-    m_Severity = m_Results[outcome].severity_;
-    m_Description = m_Results[outcome].description_;
-    m_Actions = m_Results[outcome].actions_;
+    if (m_Results == nullptr) {
+        log_debug ("Results are null for rule %s",  m_Rule.c_str ());
+    } else {
+        auto outcome_it = m_Results->find (outcome);
+        if (outcome_it != m_Results->end ()) {
+            m_Severity = outcome_it->second.severity_;
+            m_Description = outcome_it->second.description_;
+            m_Actions = outcome_it->second.actions_;
+        } else {
+            log_error ("Missing outcome '%s' for rule '%s'", outcome.c_str (), m_Rule.c_str ());
+        }
+    }
 }
 
 void
@@ -115,10 +124,9 @@ Alert::overwrite (fty_proto_t *msg)
 }
 
 void
-Alert::overwrite (GenericRule rule)
+Alert::overwrite (GenericRule &rule)
 {
     //m_Id = rule.getName ();
-    m_Results = rule.getResults ();
     m_State = RESOLVED;
     m_Outcome.clear ();
     m_Outcome.push_back ("ok");
@@ -128,6 +136,8 @@ Alert::overwrite (GenericRule rule)
     m_Severity.clear ();
     m_Description.clear ();
     m_Actions.clear ();
+    if (*m_Results != rule.getResults ())
+        *m_Results = rule.getResults ();
 }
 
 void
@@ -349,7 +359,7 @@ alert_test (bool verbose)
     {
         log_debug ("Testt #1");
         Alert alert (rule, name, "RESOLVED");
-        alert.setResults (tmp);
+        alert.setResults (std::make_shared<Rule::ResultsMap> (tmp));
         assert (alert.outcome () == "ok");
         assert (alert.ctime () == 0);
         assert (alert.mtime () == 0);
@@ -446,7 +456,7 @@ alert_test (bool verbose)
         log_debug ("Test #2");
         // create alert2 - triggered
         Alert alert2 (rule, name, "ACTIVE");
-        alert2.setResults (tmp);
+        alert2.setResults (std::make_shared<Rule::ResultsMap> (tmp));
 
         zhash_t *aux = zhash_new ();
         zhash_autofree (aux);
@@ -488,7 +498,7 @@ alert_test (bool verbose)
         log_debug ("Test #3");
         // create alert3, overwrite it with a Rule
         Alert alert3 (rule, name, "RESOLVED");
-        alert3.setResults (tmp);
+        alert3.setResults (std::make_shared<Rule::ResultsMap> (tmp));
         std::string rule_json ("{\"test\":{\"name\":\"metric@asset1\",\"categories\":[\"CAT_ALL\"],\"metrics\":[\"");
         rule_json += "metric1\"],\"results\":[{\"ok\":{\"action\":[],\"severity\":\"CRITICAL\",\"description\":\"";
         rule_json += "ok_description\",\"threshold_name\":\"\"}}],\"assets\":[\"asset1\"],\"values\":[{\"var1\":\"val1\"},{\"";

@@ -20,13 +20,19 @@
 
 #include <limits>
 #include <fty_proto.h>
+#include <memory>
 
 #include "rule.h"
 
 //  @interface
 class Alert {
     public:
-        explicit Alert (std::string id, Rule::ResultsMap results):
+        Alert () = delete;
+        Alert (const Alert &) = default;
+        Alert (Alert &&) = default;
+        Alert & operator = (const Alert &) = default;
+        Alert & operator = (Alert &&) = default;
+        explicit Alert (std::string id, std::shared_ptr<Rule::ResultsMap> results):
             m_Id (id),
             m_Results (results),
             m_State (RESOLVED),
@@ -39,6 +45,7 @@ class Alert {
             m_Id (rulename + "/" + asset),
             m_Name (asset),
             m_Rule (rulename),
+            m_Results (new Rule::ResultsMap ()),
             m_State (StringToAlertState (state)),
             m_Outcome ({"ok"}),
             m_Ctime (0),
@@ -47,9 +54,10 @@ class Alert {
         {}
 
         std::string id () { return m_Id; }
-        void setResults (Rule::ResultsMap results)
+        void setResults (std::shared_ptr<Rule::ResultsMap> results)
             { m_Results = results; }
-        std::string state () { return AlertStateToString (m_State); }
+        std::string rule () { return m_Rule; }
+        std::string state () const { return AlertStateToString (m_State); }
         void setState (std::string state) { m_State = StringToAlertState (state); }
         uint64_t ctime () { return m_Ctime; }
         void setCtime (uint64_t ctime) { m_Ctime = ctime; }
@@ -67,7 +75,7 @@ class Alert {
         std::vector<std::string> actions () { return m_Actions; }
 
         void overwrite (fty_proto_t *msg);
-        void overwrite (GenericRule rule);
+        void overwrite (GenericRule &rule);
         void update (fty_proto_t *msg);
         void cleanup ();
         int switchState (std::string state_str);
@@ -92,7 +100,7 @@ class Alert {
             ACKWIP
         };
 
-        std::string AlertStateToString (AlertState state)
+        std::string AlertStateToString (AlertState state) const
         {
             std::string tmp;
             switch (state) {
@@ -108,7 +116,7 @@ class Alert {
             return tmp;
         }
 
-        AlertState StringToAlertState (std::string state_str)
+        AlertState StringToAlertState (std::string state_str) const
         {
             AlertState state = RESOLVED;
             if (state_str == "RESOLVED")
@@ -127,7 +135,7 @@ class Alert {
             return state;
         }
 
-        bool isAckState (AlertState state)
+        bool isAckState (AlertState state) const
         {
             return (state == ACKIGNORE || state == ACKPAUSE || state == ACKSILENCE || state == ACKWIP);
         }
@@ -135,7 +143,7 @@ class Alert {
         std::string m_Id;
         std::string m_Name;
         std::string m_Rule;
-        Rule::ResultsMap m_Results;
+        std::shared_ptr<Rule::ResultsMap> m_Results;
         AlertState m_State;
         std::vector<std::string> m_Outcome;
         uint64_t m_Ctime;
