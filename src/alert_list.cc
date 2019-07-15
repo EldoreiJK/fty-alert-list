@@ -26,6 +26,7 @@
 @end
 */
 
+#include <iostream>
 #include "fty_alert_list_classes.h"
 
 #define RFC_ALERTS_LIST_SUBJECT "rfc-alerts-list"
@@ -38,12 +39,12 @@ AlertList::alert_cache_clean ()
     uint64_t now = zclock_mono ()/1000;
     for (auto alert_pair : m_Alert_cache) {
         std::shared_ptr<Alert> alert = alert_pair.second;
-        if ((alert->mtime () + alert->ttl () < now) && (alert->state() != "RESOLVED")) {
-            log_debug ("cleaning up alert %s", alert->id().c_str ());
+        if ((alert->mtime () + alert->ttl () < now) && (alert->state () != "RESOLVED")) {
+            log_debug ("cleaning up alert %s", alert->id ().c_str ());
             alert->cleanup ();
 
             zmsg_t *fty_alert = alert->StaleToFtyProto ();
-            int rv = mlm_client_send (m_Stream_client, alert->id().c_str (), &fty_alert);
+            int rv = mlm_client_send (m_Stream_client, alert->id ().c_str (), &fty_alert);
             if (rv == -1) {
                 log_error ("mlm_client_send (subject = '%s') failed", alert->id ().c_str ());
                 zmsg_destroy (&fty_alert);
@@ -55,18 +56,18 @@ AlertList::alert_cache_clean ()
 void
 AlertList::filter_alerts_for_publishing
     (std::vector<Alert> alerts,
-     std::function<bool(Alert alert)> filter,
+     std::function<bool (Alert alert)> filter,
      zmsg_t *msg)
 {
     std::vector<Alert> filtered_alerts;
     std::copy_if (
-            alerts.begin(),
-            alerts.end(),
+            alerts.begin (),
+            alerts.end (),
             std::back_inserter (filtered_alerts),
             filter
             );
 
-    for (auto alert : filtered_alerts) {
+    for (auto &alert : filtered_alerts) {
         std::string name = alert.name ();
         try {
             std::string logical_asset_name, logical_asset_ename, normal_state, port;
@@ -90,6 +91,14 @@ AlertList::filter_alerts_for_publishing
                     port
                     );
             zmsg_addmsg (msg, &fty_alert);
+        } catch (null_argument &ne) {
+            log_error ("null_argument %s", ne.what ());
+        } catch (element_exists &ee) {
+            log_error ("element_exists %s", ee.what ());
+        } catch (element_not_found &enf) {
+            log_error ("element_not_found %s", enf.what ());
+        } catch (std::runtime_error &re) {
+            log_error ("runtime_error %s", re.what ());
         } catch (std::exception &e) {
             log_error ("Unable to get asset data due to :", e.what ());
         } catch (...) {
@@ -103,10 +112,12 @@ AlertList::handle_rule (std::string rule)
 {
     GenericRule deserialized_rule (rule);
     std::string id = deserialized_rule.getName ();
-    auto pos = m_Rule_cache.find (id);
+    auto rule_cache_map_it = m_Rule_cache.find (id);
     // new rule
-    if (pos == m_Rule_cache.end ()) {
-        m_Rule_cache.insert (std::pair<std::string, Rule::ResultsMap> (id, deserialized_rule.getResults ()));
+    if (rule_cache_map_it == m_Rule_cache.end ()) {
+        // create new rule cache
+        m_Rule_cache.insert (std::pair<std::string, std::shared_ptr<Rule::ResultsMap>> (id,
+                    std::make_shared<Rule::ResultsMap> (deserialized_rule.getResults ())));
         for (auto asset : deserialized_rule.getAssets ()) {
             try {
                 std::shared_ptr<FullAsset> full_asset = FullAssetDatabase::getInstance ().getAsset (asset);
@@ -119,36 +130,32 @@ AlertList::handle_rule (std::string rule)
                         zuuid_str_canonical (uuid), asset.c_str (), NULL);
                 void *which = zpoller_wait (asset_helper, 15);
                 if (which == NULL) {
-                    log_warning("no response from ASSET AGENT, ignoring this alert.");
+                    log_warning ("no response from ASSET AGENT, ignoring this alert.");
                 } else {
                     zmsg_t *reply_msg = mlm_client_recv (m_Mailbox_client);
                     ZstrGuard rcv_uuid (zmsg_popstr (reply_msg));
                     log_error ("%s = %s", zuuid_str_canonical (uuid), rcv_uuid.get ());
-                    if (streq (rcv_uuid.get (), zuuid_str_canonical (uuid)))
-                        log_error ("UUID equal");
-                    if (fty_proto_is (reply_msg))
-                        log_error ("is fty-proto");
-                    if (streq (rcv_uuid.get (), zuuid_str_canonical (uuid))) {
+                    if (streq (rcv_uuid.get (), zuuid_str_canonical (uuid)) && fty_proto_is (reply_msg)) {
                         fty_proto_t *reply_proto_msg = fty_proto_decode (&reply_msg);
                         if (fty_proto_id (reply_proto_msg) != FTY_PROTO_ASSET) {
-                            log_warning("unexpected response from ASSET AGENT, ignoring this alert.");
+                            log_warning ("unexpected response from ASSET AGENT, ignoring this alert.");
                         }
-                        log_debug("received alert for %s, asked for it and was successful", asset.c_str ());
-                        //Alert rule_alert (id, deserialized_rule.getResults());
+                        log_debug ("received alert for %s, asked for it and was successful", asset.c_str ());
+                        //Alert rule_alert (id, deserialized_rule.getResults ());
                         //std::shared_ptr<Alert> rule_alert_ptr = std::make_shared<Alert> (rule_alert);
                         //m_Asset_alerts[asset].push_back (rule_alert_ptr);
                     }
                     else {
-                        log_warning("received alert for unknown asset, ignoring.");
+                        log_warning ("received alert for unknown asset, ignoring.");
                         if (reply_msg) {
-                            zmsg_destroy(&reply_msg);
+                            zmsg_destroy (&reply_msg);
                         }
                         // msg will be destroyed by caller
                     }
                 }
                 zuuid_destroy (&uuid);
             }
-            //Alert rule_alert (id, deserialized_rule.getResults());
+            //Alert rule_alert (id, deserialized_rule.getResults ());
             //std::shared_ptr<Alert> rule_alert_ptr = std::make_shared<Alert> (rule_alert);
             //m_Alert_cache.insert (std::pair<std::string, std::shared_ptr<Alert>> (id, rule_alert_ptr));
             //m_Asset_alerts[asset].push_back (rule_alert_ptr);
@@ -156,14 +163,18 @@ AlertList::handle_rule (std::string rule)
     }
     // update of old rule
     else {
-        pos->second = deserialized_rule.getResults ();
+        //rule_cache_map_it->second->clear ();
+        *(rule_cache_map_it->second) = deserialized_rule.getResults ();
         for (auto asset : deserialized_rule.getAssets ()) {
             std::string key = id + "/" + asset;
-            m_Alert_cache[key]->overwrite (deserialized_rule);
+            auto alert_cache_it = m_Alert_cache.find (key);
+            if (alert_cache_it != m_Alert_cache.end ()) {
+                alert_cache_it->second->overwrite (deserialized_rule);
+            }
             //m_Alert_cache[key]->setResults (deserialized_rule.getResults ());
             // this should clean up also in m_Asset_alerts
         }
-        //pos->second->overwrite (deserialized_rule);
+        //rule_cache_map_it->second->overwrite (deserialized_rule);
     }
     return id;
 }
@@ -171,6 +182,7 @@ AlertList::handle_rule (std::string rule)
 std::vector<std::string>
 s_get_outcomes (fty_proto_t *msg)
 {
+    fty_proto_print (msg);
     std::vector<std::string> tmp = {};
     size_t outcome_count = fty_proto_aux_number (msg, "outcome_count", 1);
     if (outcome_count == 1) {
@@ -220,7 +232,7 @@ AlertList::handle_alert (fty_proto_t *fty_new_alert, std::string subject)
         should_send = true;
     }
     else {
-        std::string old_state_str = old_alert->second->state();
+        std::string old_state_str = old_alert->second->state ();
         uint64_t old_last_sent = m_Last_send [new_alert_id];
         std::vector<std::string> old_outcomes = old_alert->second->outcomes ();
         std::vector<std::string> new_outcomes = s_get_outcomes (fty_new_alert);
@@ -316,7 +328,7 @@ AlertList::process_stream (zmsg_t *msg)
         fty_proto_print (fty_msg);
         if (streq (fty_proto_operation (fty_msg), FTY_PROTO_ASSET_OP_CREATE) || streq (fty_proto_operation (fty_msg), FTY_PROTO_ASSET_OP_UPDATE)) {
             try {
-                FullAsset asset(fty_msg);
+                FullAsset asset (fty_msg);
                 FullAssetDatabase::getInstance ().insertOrUpdateAsset (asset);
             } catch (std::exception &e) {
                 log_error ("Unable to create/update asset due to :", e.what ());
@@ -360,18 +372,18 @@ AlertList::process_LIST (zmsg_t *msg, std::string subject, char *cmd, char *corr
     char *filter = zmsg_popstr (msg);
 
     if (alert_filters.find (filter) != alert_filters.end ()) {
-        std::function<bool(Alert alert)> filter_fn;
+        std::function<bool (Alert alert)> filter_fn;
         if (streq (filter, "ALL")) {
             // pass trivial lambda
-            filter_fn = [](Alert alert) -> bool { return true; } ;
+            filter_fn = [](const Alert &alert) -> bool { return true; } ;
         }
         else if (streq (filter, "ALL-ACTIVE")) {
             // select everything except RESOLVED
-            filter_fn = [](Alert alert) -> bool { return alert.state () != "RESOLVED"; } ;
+            filter_fn = [](const Alert &alert) -> bool { return alert.state () != "RESOLVED"; } ;
         }
         else {
             // select by state
-            filter_fn = [=](Alert alert) -> bool { return streq (alert.state ().c_str (), filter); } ;
+            filter_fn = [=](const Alert &alert) -> bool { return streq (alert.state ().c_str (), filter); } ;
         }
 
         if (streq (cmd, "LISTALL")) {
@@ -429,15 +441,15 @@ AlertList::process_CHANGESTATE (zmsg_t *msg, std::string subject, char *correlat
     }
 
     ZstrGuard alert_id (zmsg_popstr (msg));
-    auto pos = m_Alert_cache.find (alert_id.get ());
-    if (pos == m_Alert_cache.end ()) {
+    auto alert_cache_map_it = m_Alert_cache.find (alert_id.get ());
+    if (alert_cache_map_it == m_Alert_cache.end ()) {
         zmsg_addstr (reply, correlation_id);
         zmsg_addstr (reply, "ERROR");
         zmsg_addstr (reply, "NOT_FOUND");
         return reply;
     }
     ZstrGuard new_state (zmsg_popstr (msg));
-    std::shared_ptr<Alert> alert = pos->second;
+    std::shared_ptr<Alert> alert = alert_cache_map_it->second;
     int rv = alert->switchState (new_state.get ());
     if (rv) {
         zmsg_addstr (reply, correlation_id);
@@ -585,7 +597,7 @@ alert_list_test (bool verbose)
     //  Simple create/destroy test
     {
         log_debug ("Test #1");
-        AlertList alert_list_server_tmp();
+        AlertList alert_list_server_tmp ();
         log_debug ("Test #1 OK");
     }
 
@@ -720,7 +732,6 @@ alert_list_test (bool verbose)
     zmsg_t *tmp = zmsg_popmsg (listall_reply);
     fty_proto_t *fty_tmp = fty_proto_decode (&tmp);
     assert (fty_proto_id (fty_tmp) == FTY_PROTO_ALERT);
-
     assert (fty_proto_aux_number (fty_tmp, "ctime", 0) == now);
     assert (fty_proto_time (fty_tmp) == now);
     assert (streq (fty_proto_rule (fty_tmp), "average.mana@testdatacenter"));
@@ -920,7 +931,7 @@ alert_list_test (bool verbose)
     zlist_t *fty_alert_msg_actions = fty_proto_action (fty_tmp);
     assert (zlist_first (fty_alert_msg_actions) == NULL);
     fty_proto_destroy (&fty_tmp);
-    //tmp = NULL;
+    tmp = NULL;
 
     tmp = zmsg_popmsg (reply);
     assert (tmp == NULL);

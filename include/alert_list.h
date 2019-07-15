@@ -42,7 +42,7 @@ class AlertList {
     private:
         void filter_alerts_for_publishing
             (std::vector<Alert> alerts,
-             std::function<bool(Alert alert)> filter,
+             std::function<bool (Alert alert)> filter,
              zmsg_t *reply);
         void alert_cache_clean ();
         void process_mailbox (zmsg_t *msg);
@@ -54,9 +54,9 @@ class AlertList {
 
         mlm_client_t *m_Mailbox_client;
         mlm_client_t *m_Stream_client;
-        std::map<std::string, Rule::ResultsMap> m_Rule_cache;
-        std::map<std::string, std::shared_ptr<Alert>> m_Alert_cache;
-        std::map<std::string, std::vector<std::shared_ptr<Alert>>> m_Asset_alerts;
+        std::map<std::string, std::shared_ptr<Rule::ResultsMap>> m_Rule_cache; // rule_id, results
+        std::map<std::string, std::shared_ptr<Alert>> m_Alert_cache; // alert_id, alert details
+        std::map<std::string, std::vector<std::shared_ptr<Alert>>> m_Asset_alerts; // asset_id, alerts (details)
         std::map<std::string, uint64_t> m_Last_send;
 };
 void alert_list_actor (zsock_t *pipe, void *args);
