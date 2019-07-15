@@ -69,6 +69,7 @@ int main (int argc, char *argv [])
     zstr_sendx (alert_list_server, "CONSUMER", FTY_PROTO_STREAM_ALERTS_SYS, ".*", NULL);
     zstr_sendx (alert_list_server, "CONSUMER", FTY_PROTO_STREAM_ASSETS, ".*", NULL);
     zstr_sendx (alert_list_server, "PRODUCER", FTY_PROTO_STREAM_ALERTS, NULL);
+    zstr_sendx (alert_list_server, "ASK_FOR_RULES", NULL);
     // actions actor
     zactor_t *alert_actions_server = zactor_new (fty_alert_actions, (void *) AGENT_FTY_ALERT_ACTIONS);
     zstr_sendx (alert_actions_server, "CONNECT", DEFAULT_ENDPOINT, AGENT_FTY_ALERT_ACTIONS, NULL);

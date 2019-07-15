@@ -113,11 +113,10 @@ Alert::overwrite (fty_proto_t *msg)
         std::string msg ("Wrong fty-proto type");
         throw std::runtime_error (msg);
     }
-    if (!isAckState (m_State)) {
-        const char *state = nullptr;
-        state = fty_proto_state (msg);
-        if (state != nullptr)
-            m_State = StringToAlertState (state);
+    const char *state = nullptr;
+    state = fty_proto_state (msg);
+    if (state != nullptr && (!isAckState (m_State) || streq (state, "RESOLVED") || !streq (state, "OUTAGED"))) {
+        m_State = StringToAlertState (state);
     }
     m_Ctime = fty_proto_time (msg);
     m_Mtime = fty_proto_time (msg);

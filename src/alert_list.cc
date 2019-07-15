@@ -517,6 +517,7 @@ AlertList::alert_list_run (zsock_t *pipe)
         if (which == pipe) {
             zmsg_t *msg = zmsg_recv (pipe);
             ZstrGuard cmd (zmsg_popstr (msg));
+            log_debug ("Received pipe %s", cmd.get ());
             if (streq (cmd, "$TERM")) {
                 zmsg_destroy (&msg);
                 break;
@@ -536,6 +537,36 @@ AlertList::alert_list_run (zsock_t *pipe)
                 ZstrGuard stream (zmsg_popstr (msg));
                 ZstrGuard pattern (zmsg_popstr (msg));
                 mlm_client_set_consumer (m_Stream_client, stream, pattern);
+            }
+            else if (streq (cmd , "ASK_FOR_RULES")) {
+                zpoller_t *poller = zpoller_new (mlm_client_msgpipe (m_Mailbox_client), NULL);
+                mlm_client_sendtox (m_Mailbox_client, "fty-alert-engine", "rfc-evaluator-rules", "fty-alert-list",
+                        "LIST", "all", NULL);
+                void *which = zpoller_wait (poller, 1000);
+                if (which == NULL) {
+                    log_warning ("No rules received.");
+                } else {
+                    zmsg_t *reply_msg = mlm_client_recv (m_Mailbox_client);
+                    ZstrGuard uuid (zmsg_popstr (reply_msg));
+                    if (uuid != nullptr && streq (uuid, "fty-alert-list")) {
+                        ZstrGuard okerror (zmsg_popstr (reply_msg));
+                        if (okerror != nullptr && streq (okerror, "LIST")) {
+                            ZstrGuard ignore1 (zmsg_popstr (reply_msg));
+                            ZstrGuard ignore2 (zmsg_popstr (reply_msg));
+                            char *rulejson = zmsg_popstr (reply_msg);
+                            while (rulejson != nullptr) {
+                                std::string rule_id = handle_rule (rulejson);
+                                log_debug ("Rule '%s' was successfully added", rule_id.c_str ());
+                                zstr_free (&rulejson);
+                                rulejson = zmsg_popstr (reply_msg);
+                            }
+                        } else {
+                            log_error ("Response on ASK_FOR_RULES failed");
+                        }
+                    } else {
+                        log_error ("Received response that's not for me");
+                    }
+                }
             }
             else if (streq (cmd , "TTLCLEANUP")) {
                 alert_cache_clean ();
