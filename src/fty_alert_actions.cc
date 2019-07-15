@@ -1368,6 +1368,8 @@ fty_alert_actions_test (bool verbose)
 
     mlm_client_t *email_client = mlm_client_new ();
     mlm_client_connect (email_client, TEST_ENDPOINT, 1000, FTY_EMAIL_AGENT_ADDRESS_TEST);
+    // wait till actions thread gets all the settings
+    zclock_sleep (1000);
 
     // test 8, send asset with e-mail + send an alert on the already known correct asset (with e-mail action)
     // + check that we send SENDMAIL_ALERT message
