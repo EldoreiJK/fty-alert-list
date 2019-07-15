@@ -115,7 +115,7 @@ Alert::overwrite (fty_proto_t *msg)
     }
     const char *state = nullptr;
     state = fty_proto_state (msg);
-    if (state != nullptr && (!isAckState (m_State) || streq (state, "RESOLVED"))) {
+    if (state != nullptr && (!isAckState (m_State) || streq (state, "RESOLVED") || !streq (state, "OUTAGED"))) {
         m_State = StringToAlertState (state);
     }
     m_Ctime = fty_proto_time (msg);
